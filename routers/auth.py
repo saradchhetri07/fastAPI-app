@@ -21,8 +21,7 @@ SECRET_KEY = '008453efc63acc5f2a4587946ac3eb097f405ac254fcefb3aa3677a3277b906e'
 ALGORITHM = 'HS256'
 
 bcrypt_context = CryptContext(schemes=['bcrypt'],deprecated='auto')
-oauth2_bearer_token = OAuth2PasswordBearer(tokenUrl='auth/token')
-print(f'{oauth2_bearer_token}')
+oauth2_bearer = OAuth2PasswordBearer(tokenUrl='auth/token')
 
 
 
@@ -38,7 +37,7 @@ class UserRequest(BaseModel):
 
 
 class Token(BaseModel):
-    access_token:str
+    access_token: str
     token_type: str
 
 
@@ -56,18 +55,16 @@ def get_db():
 db_dependency = Annotated[Session,Depends(get_db)]
 form_data_dependency = Annotated[OAuth2PasswordRequestForm,Depends()]
 
-
-
-async def get_current_user(token: Annotated[str,Depends(oauth2_bearer_token)]):
+async def get_current_user(token: str= Depends(oauth2_bearer)):
     try:
-        print(f'{token}')
         payload = jwt.decode(token,SECRET_KEY,algorithms = [ALGORITHM])
         username:str= payload.get('sub')
         user_id:str = payload.get('id')
+        role:str = payload.get('role')
 
         if username is None or user_id is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,details='Could not validatedd user')
-        return {'username': username,'id':user_id}
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,details='Could not validated user')
+        return {'username': username,'id':user_id,'role':role}
     
     except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,details='Couldnot validate user')
@@ -89,8 +86,9 @@ async def createUser(db: db_dependency,create_user_model: UserRequest):
     db.commit()
 
 
-def create_access_token(username: str,user_id: int,expires_in:timedelta):
-    encode = {'sub':username,'id':user_id}
+
+def create_access_token(username: str,user_id: int,role:str,expires_in:timedelta):
+    encode = {'sub':username,'id':user_id,'role':role}
     expires = datetime.now(timezone.utc) + expires_in
     encode.update({'exp': expires})
     return jwt.encode(encode,SECRET_KEY,algorithm='HS256')
@@ -111,14 +109,13 @@ def authenticate_user(userName,password,db):
 
 
 
-
-@router.post("/token",response_model= Token)
-async def login_for_access_token(db: db_dependency,form_data: form_data_dependency):
-    print("inside login for access")
+@router.post("/token",response_model=Token)
+async def login_for_access_token(form_data: form_data_dependency,db:db_dependency):
     user = authenticate_user(form_data.username,form_data.password,db)
+
     if not user:
         raise HTTPException(status_code = status.HTTP_401_UNAUTHORIZED,details='Could not validate user')
-
-    token = create_access_token(user.username,user.id,timedelta(minutes=20))
-    return {'token':token,'token_type':'bearer'}
-
+    
+    access_token = create_access_token(user.username,user.id,user.role,timedelta(minutes=20))
+    print(f'generated access token is {access_token}')
+    return {'access_token':access_token,'token_type':'bearer'}

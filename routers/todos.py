@@ -5,6 +5,7 @@ from typing import Annotated
 from models import Todos
 from database import  SessionLocal
 from .auth import get_current_user
+from passlib.context import CryptContext
 
 router=APIRouter()
 
@@ -40,14 +41,15 @@ async def create_todo(user: user_dependency,db: db_dependency, todo_request: Tod
 
 
 @router.get("/",status_code=status.HTTP_200_OK)
-async def read_all(db: db_dependency):
-    return db.query(Todos).all()
+async def read_all(user: user_dependency,db: db_dependency):
+    print(f'{user}')
+    return db.query(Todos).filter(Todos.owner_id == user.get('id')).all()
 
 
 
 @router.get("/todo/{todo_id}",status_code=status.HTTP_200_OK)
-async def read_todo(db: db_dependency,todo_id: int=Path(gt=0)):
-    todo_model = db.query(Todos).filter(Todos.id == todo_id).first()
+async def read_todo(user:user_dependency,db: db_dependency,todo_id: int=Path(gt=0)):
+    todo_model = db.query(Todos).filter(Todos.owner_id == todo_id).first()
 
     if todo_model is not None:
        return todo_model
@@ -55,12 +57,15 @@ async def read_todo(db: db_dependency,todo_id: int=Path(gt=0)):
 
 
 
-
-
 @router.put("/todo/{todo_id}",status_code = status.HTTP_200_OK)
-async def update_todo(db:db_dependency,todo_request: TodoRequest,todo_id:int= Path(gt=0)):
-    todo_model = db.query(Todos).filter(Todos.id == todo_id).first()
+async def update_todo(user: user_dependency,db:db_dependency,todo_request: TodoRequest,todo_id:int= Path(gt=0)):
 
+    if user is None:
+        raise HTTPException(status_code = 401,details='user is not authenticated')
+
+    todo_model = db.query(Todos).filter(Todos.id == todo_id).filter(Todos.owner_id==user.get('id')).first()
+
+    
     if todo_model is None:
         raise HTTPException(status_code = 404, details='Todo not found to update')
     
@@ -72,13 +77,16 @@ async def update_todo(db:db_dependency,todo_request: TodoRequest,todo_id:int= Pa
     db.commit()
 
 
-
 @router.delete("/todo/{todo_id}",status_code=status.HTTP_204_NO_CONTENT)
-async def delete_todo(db:db_dependency,todo_id: int=Path(gt=0)):
-    todo_model = db.query(Todos).filter(Todos.id == todo_id).first()
+async def delete_todo(user:user_dependency, db:db_dependency,todo_id: int=Path(gt=0)):
+    if user is None:
+        raise HTTPException(status_code=401,details="user not validated")
+    
+    todo_model = db.query(Todos).filter(Todos.id == todo_id).filter(Todos.owner_id == user.get('id')).first()
+
     if todo_model is None:
         raise HTTPException(status_code=404, details="Items to delete not found")
     
-    db.query(Todos).filter(Todos.id == todo_id).delete()
+    db.query(Todos).filter(Todos.id == todo_id).filter(Todos.owner_id == user.get('id')).first()
 
     db.commit()
